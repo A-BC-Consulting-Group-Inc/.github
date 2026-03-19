@@ -13,6 +13,10 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
+          # Must check out the actual feature branch head, not the synthetic
+          # merge commit GitHub creates for pull_request events — that merge
+          # commit has test as a parent and would always fail the ancestry check.
+          ref: ${{ github.event.pull_request.head.sha }}
 
       - name: Fetch branches
         run: |
