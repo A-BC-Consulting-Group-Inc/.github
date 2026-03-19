@@ -29,8 +29,20 @@ jobs:
             echo "No 'test' branch found — skipping contamination check."
           fi
 
-      - name: Check for direct merge from test
+      - name: Check if test is ahead of main
+        id: test-ahead
         if: steps.test-exists.outputs.exists == 'true'
+        run: |
+          UNIQUE=$(git log --oneline origin/main..origin/test)
+          if [ -z "$UNIQUE" ]; then
+            echo "ahead=false" >> $GITHUB_OUTPUT
+            echo "test is at the same point as main — nothing to be contaminated from, skipping."
+          else
+            echo "ahead=true" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Check for direct merge from test
+        if: steps.test-exists.outputs.exists == 'true' && steps.test-ahead.outputs.ahead == 'true'
         run: |
           if git merge-base --is-ancestor origin/test HEAD; then
             echo "::error::The 'test' branch has been merged into this branch. Rebase your feature branch from 'main' to remove all test branch commits before merging."
@@ -38,7 +50,7 @@ jobs:
           fi
 
       - name: Check for cherry-picked commits from test
-        if: steps.test-exists.outputs.exists == 'true'
+        if: steps.test-exists.outputs.exists == 'true' && steps.test-ahead.outputs.ahead == 'true'
         run: |
           FEATURE_PATCHES=$(git log --no-merges origin/main..HEAD | git patch-id --stable 2>/dev/null | awk '{print $1}' | sort -u)
           TEST_PATCHES=$(git log --no-merges origin/main..origin/test | git patch-id --stable 2>/dev/null | awk '{print $1}' | sort -u)
