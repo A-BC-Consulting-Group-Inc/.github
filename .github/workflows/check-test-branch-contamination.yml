@@ -1,0 +1,58 @@
+name: Check Test Branch Contamination
+
+on:
+  pull_request:
+
+jobs:
+  check-contamination:
+    name: Verify no test branch commits
+    runs-on: ubuntu-latest
+    # Skip if the source branch is test or main itself
+    if: github.head_ref != 'test' && github.head_ref != 'main'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Fetch branches
+        run: |
+          git fetch origin main || true
+          git fetch origin test || true
+
+      - name: Check if test branch exists
+        id: test-exists
+        run: |
+          if git show-ref --verify --quiet refs/remotes/origin/test; then
+            echo "exists=true" >> $GITHUB_OUTPUT
+          else
+            echo "exists=false" >> $GITHUB_OUTPUT
+            echo "No 'test' branch found — skipping contamination check."
+          fi
+
+      - name: Check for direct merge from test
+        if: steps.test-exists.outputs.exists == 'true'
+        run: |
+          if git merge-base --is-ancestor origin/test HEAD; then
+            echo "::error::The 'test' branch has been merged into this branch. Rebase your feature branch from 'main' to remove all test branch commits before merging."
+            exit 1
+          fi
+
+      - name: Check for cherry-picked commits from test
+        if: steps.test-exists.outputs.exists == 'true'
+        run: |
+          FEATURE_PATCHES=$(git log --no-merges origin/main..HEAD | git patch-id --stable 2>/dev/null | awk '{print $1}' | sort -u)
+          TEST_PATCHES=$(git log --no-merges origin/main..origin/test | git patch-id --stable 2>/dev/null | awk '{print $1}' | sort -u)
+
+          if [ -z "$FEATURE_PATCHES" ] || [ -z "$TEST_PATCHES" ]; then
+            echo "✓ Branch is clean (no commits to compare)"
+            exit 0
+          fi
+
+          OVERLAP=$(comm -12 <(echo "$FEATURE_PATCHES") <(echo "$TEST_PATCHES"))
+
+          if [ -n "$OVERLAP" ]; then
+            echo "::error::This branch contains cherry-picked commits from 'test'. Feature branches must be based only on 'main' — remove the cherry-picked commits before merging."
+            exit 1
+          fi
+
+          echo "✓ Branch is clean — no test branch contamination detected"
