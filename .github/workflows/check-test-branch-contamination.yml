@@ -7,8 +7,16 @@ jobs:
   check-contamination:
     name: Verify no test branch commits
     runs-on: ubuntu-latest
-    # Skip if the source branch is test or main itself
-    if: github.head_ref != 'test' && github.head_ref != 'main'
+    # Skip if the source branch is test/main itself, OR an integration branch.
+    # Integration branches (`integration/<feature-name>/<iteration>`) are
+    # disposable merge containers that intentionally combine test + a feature
+    # branch to produce a mergeable PR when the feature → test merge would
+    # otherwise conflict. They are not feature branches and must not be
+    # subject to the contamination check.
+    if: >-
+      github.head_ref != 'test'
+      && github.head_ref != 'main'
+      && !startsWith(github.head_ref, 'integration/')
     steps:
       - uses: actions/checkout@v4
         with:
