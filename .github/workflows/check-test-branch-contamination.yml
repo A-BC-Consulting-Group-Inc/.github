@@ -2,23 +2,35 @@ name: Check Test Branch Contamination
 
 on:
   pull_request:
+  merge_group:
 
 jobs:
   check-contamination:
     name: Verify no test branch commits
     runs-on: ubuntu-latest
-    # Skip if the source branch is test/main itself, OR an integration branch.
-    # Integration branches (`integration/<feature-name>/<iteration>`) are
-    # disposable merge containers that intentionally combine test + a feature
-    # branch to produce a mergeable PR when the feature → test merge would
-    # otherwise conflict. They are not feature branches and must not be
-    # subject to the contamination check.
-    if: >-
-      github.head_ref != 'test'
-      && github.head_ref != 'main'
-      && !startsWith(github.head_ref, 'integration/')
+    # The check itself only applies to pull_request events. We still run the
+    # job on merge_group events so this workflow produces a successful check
+    # run — required because the org ruleset lists this workflow as a required
+    # workflow on `test` and `main`, and the merge queue waits for it to
+    # report success on the `gh-readonly-queue/*` branch.
+    #
+    # Skip the actual check if the source branch is test/main itself, OR an
+    # integration branch. Integration branches
+    # (`integration/<feature-name>/<iteration>`) are disposable merge
+    # containers that intentionally combine test + a feature branch to
+    # produce a mergeable PR when the feature → test merge would otherwise
+    # conflict. They are not feature branches and must not be subject to the
+    # contamination check.
     steps:
+      - name: Pass-through (merge queue context)
+        if: github.event_name == 'merge_group'
+        run: |
+          echo "Merge queue ephemeral branches (gh-readonly-queue/*) by design"
+          echo "contain 'test' in their ancestry. Contamination is a"
+          echo "pull_request-event concern and was gated on the source PR."
+
       - uses: actions/checkout@v4
+        if: github.event_name == 'pull_request' && github.head_ref != 'test' && github.head_ref != 'main' && !startsWith(github.head_ref, 'integration/')
         with:
           fetch-depth: 0
           # Must check out the actual feature branch head, not the synthetic
@@ -27,12 +39,14 @@ jobs:
           ref: ${{ github.event.pull_request.head.sha }}
 
       - name: Fetch branches
+        if: github.event_name == 'pull_request' && github.head_ref != 'test' && github.head_ref != 'main' && !startsWith(github.head_ref, 'integration/')
         run: |
           git fetch origin main || true
           git fetch origin test || true
 
       - name: Check if test branch exists
         id: test-exists
+        if: github.event_name == 'pull_request' && github.head_ref != 'test' && github.head_ref != 'main' && !startsWith(github.head_ref, 'integration/')
         run: |
           if git show-ref --verify --quiet refs/remotes/origin/test; then
             echo "exists=true" >> $GITHUB_OUTPUT
